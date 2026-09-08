@@ -312,11 +312,11 @@
       if (allowed) {
         // Renewal window is open — make the button impossible to miss
         // (solid amber + pulsing ring, see .renew-ready in style.css).
-        renewBtn = `<button type="button" class="renew-ready" data-renew="${escapeHTML(lic.license_key)}" title="Extend this license's expiry date (keeps the same license key)">Renew</button>`;
-        renewBadge = ` <span class="renew-badge">Renewal available</span>`;
+        renewBtn = `<button type="button" class="renew-ready" data-renew="${escapeHTML(lic.license_key)}" title="Start or extend this license's expiry date (keeps the same license key)">Activate/Renew</button>`;
+        renewBadge = ` <span class="renew-badge">Activation/Renewal available</span>`;
       } else {
         const dt = fmtDateTime(avail);
-        renewBtn = `<button type="button" class="secondary" data-renew="${escapeHTML(lic.license_key)}" disabled title="Renew available from ${escapeHTML(dt)}">Renew</button>`;
+        renewBtn = `<button type="button" class="secondary" data-renew="${escapeHTML(lic.license_key)}" disabled title="Activation/Renewal available from ${escapeHTML(dt)}">Activate/Renew</button>`;
       }
     }
     const note = lic.user_note || "";
