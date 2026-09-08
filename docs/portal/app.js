@@ -330,7 +330,7 @@
           ${renewBtn}
         </div>
         <div class="meta"><strong>Type:</strong> ${escapeHTML(lic.license_type || "node_locked")}</div>
-        <div class="meta"><strong>Limit:</strong> ${fmtBasisCount(lic.max_basis_count)}</div>
+        <div class="meta"><strong>Max Size:</strong> ${fmtMaxSize(lic.max_basis_count)}</div>
         <div class="meta"><strong>Status:</strong> ${escapeHTML(status)}${renewBadge}</div>
         <div class="memo-row">
           <strong>Memo:</strong>
@@ -437,12 +437,12 @@
   // CPU/GPU で値は変わらないので併記しない。
   // 負値（-1）と巨大値は「制限なし」のセンチネル。2,147,483,647 のような
   // 数字をそのまま見せても利用者には意味が伝わらないので Unlimited と出す。
-  function fmtBasisCount(n) {
+  function fmtMaxSize(n) {
     const num = Number(n);
     if (!Number.isFinite(num) || num < 0 || num >= UNLIMITED_SENTINEL) {
       return "Unlimited";
     }
-    return num.toLocaleString() + " basis functions";
+    return num.toLocaleString();
   }
 
   function fmtIsoLocal(iso) {
