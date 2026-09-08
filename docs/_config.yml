@@ -1,0 +1,41 @@
+title: "GANSU2 Test Site"
+description: "Test site."
+
+markdown: kramdown
+theme: just-the-docs
+
+highlighter: rouge
+
+url: "https://gansu2.github.io"
+baseurl: ""
+
+kramdown:
+  syntax_highlighter: rouge
+
+safe: false
+plugins:
+  - jekyll-seo-tag
+  - jekyll-include-cache
+
+color_scheme: light
+search_enabled: false          # ドキュメントが無いので検索は無効
+heading_anchors: true
+back_to_top: false
+
+# 左メニューからユーザーポータルへ飛べるようにする。
+# nav_external_links は just-the-docs がサイドバー下部に出す。
+nav_external_links:
+  - title: "User Portal"
+    url: "https://gansu2.github.io/portal/"
+    opens_in_new_tab: false
+
+# 検索エンジンに拾わせない（偶然の来訪を減らす）
+defaults:
+  - scope:
+      path: ""
+    values:
+      sitemap: false
+
+# ユーザーポータルは SPA。Jekyll のレイアウトを当てず素通しする。
+exclude:
+  - portal/README.md
