@@ -330,7 +330,7 @@
           ${renewBtn}
         </div>
         <div class="meta"><strong>Type:</strong> ${escapeHTML(lic.license_type || "node_locked")}</div>
-        <div class="meta"><strong>Limits:</strong> ${fmtVarCount(lic.max_var_count)} CPU vars / ${fmtVarCount(lic.gpu_max_var_count)} GPU vars</div>
+        <div class="meta"><strong>Limit:</strong> ${fmtBasisCount(lic.max_basis_count)}</div>
         <div class="meta"><strong>Status:</strong> ${escapeHTML(status)}${renewBadge}</div>
         <div class="memo-row">
           <strong>Memo:</strong>
@@ -432,13 +432,17 @@
 
   // Negative values are an "unlimited" sentinel from the C++ client; cap them
   // to the GANSU2 vindex_t maximum (2^31 - 1) for human display.
-  const MAX_VAR_DISPLAY = 2147483647;
-  function fmtVarCount(n) {
+  const UNLIMITED_SENTINEL = 2147483647;  // これ以上は「制限なし」扱い
+  // GANSU2 の上限は **基底関数の個数**（QUBO++ は変数の個数だった）。
+  // CPU/GPU で値は変わらないので併記しない。
+  // 負値（-1）と巨大値は「制限なし」のセンチネル。2,147,483,647 のような
+  // 数字をそのまま見せても利用者には意味が伝わらないので Unlimited と出す。
+  function fmtBasisCount(n) {
     const num = Number(n);
-    if (!Number.isFinite(num) || num < 0 || num >= MAX_VAR_DISPLAY) {
-      return MAX_VAR_DISPLAY.toLocaleString();
+    if (!Number.isFinite(num) || num < 0 || num >= UNLIMITED_SENTINEL) {
+      return "Unlimited";
     }
-    return num.toLocaleString();
+    return num.toLocaleString() + " basis functions";
   }
 
   function fmtIsoLocal(iso) {
