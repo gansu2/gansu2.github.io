@@ -229,7 +229,7 @@
       nav.hidden = true;
       // Product name comes from brand.js so partner-referred visitors keep
       // their branding when this subtitle is rebuilt.
-      sub.textContent = `Create your ${window.GANSU_BRAND || "GANSU2"} account. A Trial License is issued automatically.`;
+      sub.textContent = `Create your ${window.GANSU_BRAND || "GANSU2"} account. A Free License is issued automatically.`;
       return;
     }
     u.getSession((err, session) => {
@@ -312,7 +312,7 @@
       if (allowed) {
         // Renewal window is open — make the button impossible to miss
         // (solid amber + pulsing ring, see .renew-ready in style.css).
-        renewBtn = `<button type="button" class="renew-ready" data-renew="${escapeHTML(lic.license_key)}" title="Extend this trial's expiry date (keeps the same license key)">Renew</button>`;
+        renewBtn = `<button type="button" class="renew-ready" data-renew="${escapeHTML(lic.license_key)}" title="Extend this license's expiry date (keeps the same license key)">Renew</button>`;
         renewBadge = ` <span class="renew-badge">Renewal available</span>`;
       } else {
         const dt = fmtDateTime(avail);
@@ -407,7 +407,7 @@
 
   async function renewLicense(btn) {
     if (!confirm(
-      "Extend your Trial License expiry. The license key and any existing " +
+      "Extend your Free License expiry. The license key and any existing " +
       "machine activations stay as they are — only the expiry date moves " +
       "forward. Continue?"
     )) return;
@@ -422,7 +422,7 @@
       });
       await loadDashboard();
       const dt = data.expiry ? fmtDateTime(data.expiry) : "the new date";
-      alert("Trial extended. New expiry: " + dt);
+      alert("Free License extended. New expiry: " + dt);
     } catch (e) {
       btn.disabled = false;
       btn.textContent = orig;
@@ -817,7 +817,7 @@
       await apiFetch("/trial/issue", { method: "POST" });
       await loadDashboard();
     } catch (e) {
-      setError($("#issue-error"), e.message || "Could not issue Trial License.");
+      setError($("#issue-error"), e.message || "Could not issue Free License.");
     } finally { btn.disabled = false; }
   });
 
