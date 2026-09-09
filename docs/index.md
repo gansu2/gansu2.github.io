@@ -14,7 +14,7 @@ The current build is attached to the
 [latest release](https://github.com/gansu2/gansu2.github.io/releases/latest).
 
 ```bash
-pip install ./gansu-<version>-py3-none-manylinux_2_28_x86_64.whl
+pip install ./gansu2-<version>-py3-none-manylinux_2_28_x86_64.whl
 ```
 
 Linux x86_64 only. Remaining dependencies are resolved by pip.
