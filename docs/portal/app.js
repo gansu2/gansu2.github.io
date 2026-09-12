@@ -255,6 +255,11 @@
   function fmtExpiry(item) {
     const now = Math.floor(Date.now() / 1000);
     if (item.suspended) return "Suspended";
+    // ポータル発行の Free License は Start を押すまで dormant（時計が動かない）。
+    if (item.source === "portal_trial" && !(item.expiry && item.expiry > 0)) {
+      const days = (item.expiry_days && item.expiry_days > 0) ? item.expiry_days : 30;
+      return `Not started — click Start/Renew to begin your ${days}-day Free License`;
+    }
     if (item.expiry && item.expiry > 0) {
       const ts = fmtDateTime(item.expiry);
       return item.expiry < now ? `Expired at: ${ts}` : `Expires at: ${ts}`;
@@ -271,6 +276,8 @@
   function isActive(lic) {
     const now = Math.floor(Date.now() / 1000);
     if (lic.suspended) return false;
+    // 開始前の Free License は有効ではない。
+    if (lic.source === "portal_trial" && !(lic.expiry && lic.expiry > 0)) return false;
     if (lic.expiry && lic.expiry > 0 && lic.expiry < now) return false;
     return true;
   }
@@ -306,9 +313,14 @@
       // Renew is gated server-side; the SPA mirrors the same check using
       // renew_available_at so the button explains itself before the click.
       const now = Math.floor(Date.now() / 1000);
+      // ボタンはどの状態でも "Start/Renew" の 1 つ。どちらも /me/trial/renew を
+      // 呼ぶ。両方の語を常に見せることで「延長できる」ことが伝わる。
+      // dormant（未開始）→ 時計を始めるので常に押せる。開始済み → 延長で、
+      // サーバー側と同じ更新可能期間で絞る。
       const avail = Number(lic.renew_available_at || 0);
-      const expired = lic.expiry && lic.expiry > 0 && lic.expiry < now;
-      const allowed = expired || !avail || now >= avail;
+      const started = !!(lic.expiry && lic.expiry > 0);
+      const expired = started && lic.expiry < now;
+      const allowed = !started || expired || !avail || now >= avail;
       if (allowed) {
         // Renewal window is open — make the button impossible to miss
         // (solid amber + pulsing ring, see .renew-ready in style.css).
@@ -407,13 +419,15 @@
 
   async function renewLicense(btn) {
     if (!confirm(
-      "Extend your Free License expiry. The license key and any existing " +
+      "Start or renew your Free License now? This sets a new expiry date "
+      + "(a not-yet-started license begins now; an active one is extended). "
+      + "The license key and any existing " +
       "machine activations stay as they are — only the expiry date moves " +
       "forward. Continue?"
     )) return;
     btn.disabled = true;
     const orig = btn.textContent;
-    btn.textContent = "Renewing…";
+    btn.textContent = "Working…";
     try {
       const key = btn.getAttribute("data-renew") || "";
       const data = await apiFetch("/me/trial/renew", {
@@ -422,7 +436,8 @@
       });
       await loadDashboard();
       const dt = data.expiry ? fmtDateTime(data.expiry) : "the new date";
-      alert("Free License extended. New expiry: " + dt);
+      alert((data.started ? "Free License started. Expires: "
+                    : "Free License extended. New expiry: ") + dt);
     } catch (e) {
       btn.disabled = false;
       btn.textContent = orig;
