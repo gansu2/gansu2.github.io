@@ -1,22 +1,52 @@
-// GANSU2 User Portal SPA — vanilla JS + amazon-cognito-identity-js.
+// GANSU2 User Portal SPA — vanilla JS + AWS Amplify JS v6 (Auth category).
 // Hash routes: #/signup, #/verify, #/signin, #/forgot, #/dashboard, #/profile, #/account.
+//
+// Loaded as an ES module (<script type="module">). The Amplify packages come
+// from jsDelivr's ESM bundles, PINNED to one aws-amplify release in all three
+// URLs. jsDelivr bundles each entry point separately (internal modules are
+// inlined per bundle), so every Auth function AND the token provider must come
+// from the same bundle — auth/cognito — or sign-in fails with "Auth UserPool
+// not configured". The aws-amplify root wires that same auth/cognito bundle as
+// the default token provider. Bump all three URLs together (see README).
+import { Amplify } from "https://cdn.jsdelivr.net/npm/aws-amplify@6.22.0/+esm";
+import {
+  signUp as amplifySignUp,
+  confirmSignUp as amplifyConfirmSignUp,
+  resendSignUpCode,
+  signIn as amplifySignIn,
+  signOut as amplifySignOut,
+  getCurrentUser as amplifyGetCurrentUser,
+  fetchUserAttributes,
+  updateUserAttributes as amplifyUpdateUserAttributes,
+  confirmUserAttribute,
+  resetPassword,
+  confirmResetPassword,
+  updatePassword,
+  cognitoUserPoolsTokenProvider,
+} from "https://cdn.jsdelivr.net/npm/aws-amplify@6.22.0/auth/cognito/+esm";
+import { sessionStorage as amplifySessionStorage } from "https://cdn.jsdelivr.net/npm/aws-amplify@6.22.0/utils/+esm";
 
-(function () {
-  "use strict";
+const cfg = window.GANSU_PORTAL_CONFIG;
+if (!cfg || cfg.USER_POOL_ID.startsWith("REPLACE_ME")) {
+  document.body.innerHTML =
+    "<main style='padding:2rem'><h2>Portal not configured yet</h2>" +
+    "<p>Run <code>setup_cognito.sh</code> and <code>deploy.sh</code>, then update <code>config.js</code>.</p></main>";
+} else {
+  main();
+}
 
-  const cfg = window.GANSU_PORTAL_CONFIG;
-  if (!cfg || cfg.USER_POOL_ID.startsWith("REPLACE_ME")) {
-    document.body.innerHTML =
-      "<main style='padding:2rem'><h2>Portal not configured yet</h2>" +
-      "<p>Run <code>setup_cognito.sh</code> and <code>deploy.sh</code>, then update <code>config.js</code>.</p></main>";
-    return;
-  }
-
-  const userPool = new AmazonCognitoIdentity.CognitoUserPool({
-    UserPoolId: cfg.USER_POOL_ID,
-    ClientId: cfg.APP_CLIENT_ID,
-    Storage: window.sessionStorage,
+function main() {
+  Amplify.configure({
+    Auth: {
+      Cognito: {
+        userPoolId: cfg.USER_POOL_ID,
+        userPoolClientId: cfg.APP_CLIENT_ID,
+      },
+    },
   });
+  // Tokens live in sessionStorage (per tab, gone when the tab closes) — same
+  // policy as the previous amazon-cognito-identity-js implementation.
+  cognitoUserPoolsTokenProvider.setKeyValueStorage(amplifySessionStorage);
 
   // -------- helpers --------
   function $(sel, root) { return (root || document).querySelector(sel); }
@@ -85,124 +115,101 @@
     }
   }
 
-  function getCurrentUser() { return userPool.getCurrentUser(); }
-
-  function getValidSession() {
-    return new Promise((resolve, reject) => {
-      const u = getCurrentUser();
-      if (!u) return reject(new Error("not signed in"));
-      u.getSession((err, session) => {
-        if (err || !session || !session.isValid()) {
-          return reject(err || new Error("invalid session"));
-        }
-        resolve({ user: u, session });
-      });
-    });
+  // -------- Auth state (Amplify v6) --------
+  // getCurrentUser() reads the token store only (no network) and throws when
+  // nobody is signed in; wrap it into a boolean for the router.
+  async function isSignedIn() {
+    try { await amplifyGetCurrentUser(); return true; } catch (_) { return false; }
   }
 
-  function getUserAttrs(user) {
-    return new Promise((resolve, reject) => {
-      user.getUserAttributes((err, attrs) => {
-        if (err) return reject(err);
-        const out = {};
-        (attrs || []).forEach((a) => { out[a.Name] = a.Value; });
-        resolve(out);
-      });
-    });
+  // ID token for the API Gateway JWT authorizer. The token provider refreshes
+  // an expired access/ID token with the refresh token when needed (this is
+  // what fetchAuthSession() calls internally; using the provider directly keeps
+  // every Auth import inside the one auth/cognito bundle, see the header).
+  async function getIdToken() {
+    const tokens = await cognitoUserPoolsTokenProvider.getTokens();
+    const tok = tokens && tokens.idToken;
+    if (!tok) throw new Error("not signed in");
+    return tok.toString();
+  }
+
+  function getUserAttrs() {
+    return fetchUserAttributes();   // { "email": ..., "custom:organization": ..., ... }
   }
 
   // -------- Cognito flows --------
   function signUp({ email, password, first_name, last_name, organization, position, country, purpose, trial_code }) {
-    const attrs = [
-      new AmazonCognitoIdentity.CognitoUserAttribute({ Name: "email", Value: email }),
-      new AmazonCognitoIdentity.CognitoUserAttribute({ Name: "given_name", Value: first_name }),
-      new AmazonCognitoIdentity.CognitoUserAttribute({ Name: "family_name", Value: last_name }),
-      new AmazonCognitoIdentity.CognitoUserAttribute({ Name: "custom:organization", Value: organization }),
-      new AmazonCognitoIdentity.CognitoUserAttribute({ Name: "custom:purpose", Value: purpose }),
-      new AmazonCognitoIdentity.CognitoUserAttribute({ Name: "custom:country", Value: country }),
-    ];
-    if (position) {
-      attrs.push(new AmazonCognitoIdentity.CognitoUserAttribute({ Name: "custom:position", Value: position }));
-    }
-    const clientMetadata = trial_code ? { trial_code: trial_code } : null;
-    return new Promise((resolve, reject) => {
-      userPool.signUp(email, password, attrs, null, (err, result) => {
-        if (err) return reject(err);
-        resolve(result);
-      }, clientMetadata);
-    });
+    const userAttributes = {
+      email: email,
+      given_name: first_name,
+      family_name: last_name,
+      "custom:organization": organization,
+      "custom:purpose": purpose,
+      "custom:country": country,
+    };
+    if (position) userAttributes["custom:position"] = position;
+    const options = { userAttributes };
+    // The PreSignUp trigger reads clientMetadata.trial_code (daily sign-up code).
+    if (trial_code) options.clientMetadata = { trial_code: trial_code };
+    return amplifySignUp({ username: email, password, options });
   }
 
   function confirmSignUp(email, code) {
-    return new Promise((resolve, reject) => {
-      const user = new AmazonCognitoIdentity.CognitoUser({ Username: email, Pool: userPool, Storage: window.sessionStorage });
-      user.confirmRegistration(code, true, (err, ok) => err ? reject(err) : resolve(ok));
-    });
+    return amplifyConfirmSignUp({ username: email, confirmationCode: code });
   }
 
   function resendCode(email) {
-    return new Promise((resolve, reject) => {
-      const user = new AmazonCognitoIdentity.CognitoUser({ Username: email, Pool: userPool, Storage: window.sessionStorage });
-      user.resendConfirmationCode((err, ok) => err ? reject(err) : resolve(ok));
-    });
+    return resendSignUpCode({ username: email });
   }
 
-  function signIn(email, password) {
-    return new Promise((resolve, reject) => {
-      const user = new AmazonCognitoIdentity.CognitoUser({ Username: email, Pool: userPool, Storage: window.sessionStorage });
-      const auth = new AmazonCognitoIdentity.AuthenticationDetails({ Username: email, Password: password });
-      user.authenticateUser(auth, { onSuccess: resolve, onFailure: reject });
-    });
+  async function signIn(email, password) {
+    // USER_SRP_AUTH (the app client's default flow). A stale session in this
+    // tab makes v6 throw UserAlreadyAuthenticatedException — clear it and retry.
+    let r;
+    try {
+      r = await amplifySignIn({ username: email, password });
+    } catch (e) {
+      if (e && e.name === "UserAlreadyAuthenticatedException") {
+        await amplifySignOut();
+        r = await amplifySignIn({ username: email, password });
+      } else {
+        throw e;
+      }
+    }
+    if (!r.isSignedIn) {
+      const step = (r.nextStep && r.nextStep.signInStep) || "unknown";
+      throw new Error("Sign in needs an additional step (" + step + ") that this portal does not support. Contact the administrator.");
+    }
+    return r;
   }
 
   function forgotPasswordRequest(email) {
-    return new Promise((resolve, reject) => {
-      const user = new AmazonCognitoIdentity.CognitoUser({ Username: email, Pool: userPool, Storage: window.sessionStorage });
-      user.forgotPassword({ onSuccess: resolve, onFailure: reject });
-    });
+    return resetPassword({ username: email });
   }
 
   function forgotPasswordConfirm(email, code, password) {
-    return new Promise((resolve, reject) => {
-      const user = new AmazonCognitoIdentity.CognitoUser({ Username: email, Pool: userPool, Storage: window.sessionStorage });
-      user.confirmPassword(code, password, { onSuccess: resolve, onFailure: reject });
-    });
+    return confirmResetPassword({ username: email, confirmationCode: code, newPassword: password });
   }
 
   function changePassword(currentPw, newPw) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const { user } = await getValidSession();
-        user.changePassword(currentPw, newPw, (err, ok) => err ? reject(err) : resolve(ok));
-      } catch (e) { reject(e); }
-    });
+    return updatePassword({ oldPassword: currentPw, newPassword: newPw });
   }
 
   function updateAttributes(updates) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const { user } = await getValidSession();
-        const attrs = Object.entries(updates).map(([k, v]) =>
-          new AmazonCognitoIdentity.CognitoUserAttribute({ Name: k, Value: v })
-        );
-        user.updateAttributes(attrs, (err, ok) => err ? reject(err) : resolve(ok));
-      } catch (e) { reject(e); }
-    });
+    return amplifyUpdateUserAttributes({ userAttributes: updates });
   }
 
   function verifyAttribute(attrName, code) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const { user } = await getValidSession();
-        user.verifyAttribute(attrName, code, { onSuccess: resolve, onFailure: reject });
-      } catch (e) { reject(e); }
-    });
+    return confirmUserAttribute({ userAttributeKey: attrName, confirmationCode: code });
+  }
+
+  async function signOutUser() {
+    try { await amplifySignOut(); } catch (_) { /* nothing to sign out of */ }
   }
 
   // -------- API --------
   async function apiFetch(path, opts) {
-    const { session } = await getValidSession();
-    const idToken = session.getIdToken().getJwtToken();
+    const idToken = await getIdToken();
     const r = await fetch(cfg.API_BASE.replace(/\/$/, "") + path, {
       method: (opts && opts.method) || "GET",
       headers: { "Authorization": "Bearer " + idToken, "Content-Type": "application/json" },
@@ -221,28 +228,24 @@
   }
 
   // -------- Topnav --------
-  function renderTopnav() {
-    const u = getCurrentUser();
+  async function renderTopnav() {
     const nav = $("#topnav");
     const sub = $("#subtitle");
-    if (!u) {
+    if (!(await isSignedIn())) {
       nav.hidden = true;
       // Product name comes from brand.js so partner-referred visitors keep
       // their branding when this subtitle is rebuilt.
       sub.textContent = `Create your ${window.GANSU_BRAND || "GANSU2"} account. A Free License is issued automatically.`;
       return;
     }
-    u.getSession((err, session) => {
-      if (err || !session || !session.isValid()) { nav.hidden = true; return; }
-      u.getUserAttributes((e2, attrs) => {
-        if (!e2 && attrs) {
-          const email = (attrs.find((a) => a.Name === "email") || {}).Value || "";
-          $("#user-email").textContent = email;
-        }
-        nav.hidden = false;
-        sub.textContent = "Self-service license portal.";
-      });
-    });
+    try {
+      const attrs = await getUserAttrs();
+      $("#user-email").textContent = attrs.email || "";
+      nav.hidden = false;
+      sub.textContent = "Self-service license portal.";
+    } catch (_) {
+      nav.hidden = true;
+    }
   }
 
   // -------- Dashboard --------
@@ -368,14 +371,16 @@
   function bindMemoEditors(container) {
     container.querySelectorAll(".memo-input").forEach((input) => {
       const key = input.dataset.noteKey;
-      const orig = input.dataset.noteOrig || "";
       const counter = container.querySelector(`[data-note-counter="${cssEsc(key)}"]`);
       const saveBtn = container.querySelector(`[data-note-save="${cssEsc(key)}"]`);
       const status = container.querySelector(`[data-note-status="${cssEsc(key)}"]`);
       const refresh = () => {
         const v = input.value;
         if (counter) counter.textContent = v.length + "/100";
-        const dirty = v !== orig;
+        // Compare against the saved baseline (updated after each successful
+        // save) — a stale closure value here kept the row "dirty" forever and
+        // wiped the "Saved" status the moment it was set.
+        const dirty = v !== (input.dataset.noteOrig || "");
         if (saveBtn) saveBtn.disabled = !dirty;
         if (status && dirty) status.textContent = "";
       };
@@ -605,8 +610,7 @@
     const f = $("#profile-form");
     setError($("#profile-error"), ""); setInfo($("#profile-info"), "");
     try {
-      const { user } = await getValidSession();
-      const a = await getUserAttrs(user);
+      const a = await getUserAttrs();
       f.email.value = a["email"] || "";
       f.first_name.value = a["given_name"] || "";
       f.last_name.value = a["family_name"] || "";
@@ -638,15 +642,13 @@
     } catch (e) {
       throw new Error("Could not delete account: " + e.message);
     }
-    const u = getCurrentUser();
-    if (u) u.signOut();
+    await signOutUser();
   }
 
   // -------- Routing --------
-  function route() {
+  async function route() {
     const hash = location.hash || "#/signin";
-    const u = getCurrentUser();
-    const authedRoutes = ["#/dashboard", "#/profile", "#/account"];
+    const u = await isSignedIn();
 
     if (hash.startsWith("#/dashboard")) {
       if (!u) { location.hash = "#/signin"; return; }
@@ -865,8 +867,7 @@
     try {
       await changePassword(f.current.value, newPassword);
       try {
-        const { user } = await getValidSession();
-        const attrs = await getUserAttrs(user);
+        const attrs = await getUserAttrs();
         if (attrs.email) await saveCredential(attrs.email, newPassword);
       } catch (_) { /* credential save failure is non-fatal */ }
       setInfo($("#password-info"), "Password updated.");
@@ -932,12 +933,11 @@
     }
   });
 
-  $("#signout-btn").addEventListener("click", () => {
-    const u = getCurrentUser();
-    if (u) u.signOut();
+  $("#signout-btn").addEventListener("click", async () => {
+    await signOutUser();
     location.hash = "#/signin";
     setTimeout(route, 0);
   });
 
   route();
-})();
+}

@@ -277,13 +277,13 @@
   </section>
 </main>
 
-<script
-  src="https://cdn.jsdelivr.net/npm/amazon-cognito-identity-js@6.3.12/dist/amazon-cognito-identity.min.js"></script>
 <script src="config.js"></script>
 <!-- Before app.js: sets window.GANSU_BRAND, and rewrites the markup above for
      visitors referred by a partner site. -->
 <script src="brand.js"></script>
-<script src="app.js"></script>
+<!-- app.js is an ES module: it imports AWS Amplify JS v6 (Auth) from jsDelivr
+     and runs after the classic scripts above have set the window globals. -->
+<script type="module" src="app.js"></script>
 
 </body>
 </html>
