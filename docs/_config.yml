@@ -1,0 +1,28 @@
+title: "GANSU2 Documentation"
+description: "GANSU2 — GPU-accelerated quantum chemistry (HF / post-HF / periodic), distributed as a licensed shared library."
+
+markdown: kramdown
+theme: just-the-docs
+highlighter: rouge
+
+url: "https://gansu2.github.io"
+baseurl: ""
+permalink: pretty          # /usage_cli/ 形式のクリーンな URL
+
+kramdown:
+  syntax_highlighter: rouge
+
+safe: false
+plugins:
+  - jekyll-seo-tag
+  - jekyll-include-cache
+
+color_scheme: light
+search_enabled: true          # 公開ドキュメントサイト（QUBO++ と同様）
+heading_anchors: true
+back_to_top: true
+
+# ユーザーポータルは SPA。Jekyll のレイアウトを当てず素通しする。
+exclude:
+  - README.md
+  - portal/README.md
