@@ -1,0 +1,19 @@
+{%- comment -%}
+  just-the-docs のヘッダ（#main-header、検索欄と同じ上部バー）に差し込まれる。
+  page.url から相手言語の URL を組み、EN/JA を右寄せで出す（JS 不要）。
+{%- endcomment -%}
+{%- assign cur_lang = page.lang | default: "en" -%}
+{%- assign en_url = page.url | replace: '/ja/', '/en/' -%}
+{%- assign ja_url = page.url | replace: '/en/', '/ja/' -%}
+<div class="lang-toggle" style="margin-left:auto; display:flex; gap:0.25rem; align-items:center; flex-shrink:0;">
+  <a href="{{ en_url | relative_url }}"
+     style="font-weight:bold; padding:0.15rem 0.5rem; border-radius:4px; font-size:0.78rem; text-decoration:none;
+            border:1px solid {% if cur_lang == 'en' %}#4b6bfb{% else %}#ccc{% endif %};
+            background:{% if cur_lang == 'en' %}#4b6bfb{% else %}transparent{% endif %};
+            color:{% if cur_lang == 'en' %}#fff{% else %}inherit{% endif %};">EN</a>
+  <a href="{{ ja_url | relative_url }}"
+     style="font-weight:bold; padding:0.15rem 0.5rem; border-radius:4px; font-size:0.78rem; text-decoration:none;
+            border:1px solid {% if cur_lang == 'ja' %}#4b6bfb{% else %}#ccc{% endif %};
+            background:{% if cur_lang == 'ja' %}#4b6bfb{% else %}transparent{% endif %};
+            color:{% if cur_lang == 'ja' %}#fff{% else %}inherit{% endif %};">JA</a>
+</div>
