@@ -1,0 +1,36 @@
+{%- comment -%}
+  just-the-docs (0.12.0) の components/sidebar.html を差し替え。
+  ナビを page.lang（en/ja）で絞り、nav_order 順に flat 表示する。
+  GANSU2 の docs は入れ子が無いのでこれで足りる。サイトタイトル・メニュー
+  ボタン・フッターは gem 既定と同じ構造を保つ。EN/JA トグルは
+  head_custom.html がヘッダに差し込む。
+{%- endcomment -%}
+<header class="side-bar">
+  <div class="site-header">
+    <a href="{{ '/' | relative_url }}" class="site-title lh-tight">{% include title.html %}</a>
+    <button id="menu-button" class="site-button btn-reset" aria-label="Menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" class="icon" aria-hidden="true"><use xlink:href="#svg-menu"></use></svg>
+    </button>
+  </div>
+
+  {%- assign cur_lang = page.lang | default: "en" -%}
+  <nav aria-label="Main" id="site-nav" class="site-nav">
+    <ul class="nav-list">
+      {%- assign navpages = site.html_pages | where: "lang", cur_lang | sort: "nav_order" -%}
+      {%- for p in navpages -%}
+        {%- unless p.nav_exclude -%}
+        <li class="nav-list-item">
+          <a href="{{ p.url | relative_url }}" class="nav-list-link">{{ p.title }}</a>
+        </li>
+        {%- endunless -%}
+      {%- endfor -%}
+      <li class="nav-list-item">
+        <a href="https://gansu2.github.io/portal/" class="nav-list-link">User Portal</a>
+      </li>
+    </ul>
+  </nav>
+
+  <div class="d-md-block d-none site-footer">
+    This site uses <a href="https://github.com/just-the-docs/just-the-docs">Just the Docs</a>, a documentation theme for Jekyll.
+  </div>
+</header>

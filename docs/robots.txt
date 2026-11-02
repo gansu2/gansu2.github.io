@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://gansu2.github.io/sitemap.xml

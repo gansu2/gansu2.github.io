@@ -1,0 +1,590 @@
+---
+layout: default
+title: Python API
+nav_order: 3
+lang: en
+hreflang_alt: "ja/usage_python"
+hreflang_lang: "ja"
+---
+
+# GANSU2 Python API Usage Guide
+
+## Setup
+
+### Install
+
+```bash
+pip install gansu2
+```
+
+The wheel is small; the GPU shared library is fetched on first use and cached
+under `~/.cache/gansu2/<version>/`, each file verified against its published
+SHA-256.
+
+### Import
+
+```python
+import gansu2
+```
+
+To use a specific shared library instead (for example an offline copy), point
+`GANSU2_LIB` at it before importing:
+
+```bash
+export GANSU2_LIB=/path/to/libgansu2.so
+```
+
+---
+
+## Quick Start
+
+```python
+import gansu2
+
+gansu2.init()
+
+# Create molecule and run RHF + MP2
+mol = gansu2.Molecule("h2o.xyz", basis="cc-pvdz")
+result = mol.run(method="RHF", post_hf="mp2")
+
+print(f"HF energy:  {result.total_energy:.8f} Hartree")
+print(f"MP2 corr:   {result.post_hf_energy:.8f} Hartree")
+print(f"Total:      {result.total_energy + result.post_hf_energy:.8f} Hartree")
+
+gansu2.finalize()
+```
+
+---
+
+## Preparing XYZ Files
+
+XYZ files can be created inline in Python:
+
+```python
+# H2O
+with open("h2o.xyz", "w") as f:
+    f.write("""3
+Water
+O   0.000   0.000   0.127
+H   0.000   0.758  -0.509
+H   0.000  -0.758  -0.509
+""")
+
+# H2 at a given bond length
+def write_h2(path, R):
+    with open(path, "w") as f:
+        f.write(f"2\nH2 R={R}\nH 0 0 0\nH 0 0 {R}\n")
+
+# Benzene
+with open("benzene.xyz", "w") as f:
+    f.write("""12
+Benzene
+C   0.000   1.387   0.000
+C   1.201   0.693   0.000
+C   1.201  -0.693   0.000
+C   0.000  -1.387   0.000
+C  -1.201  -0.693   0.000
+C  -1.201   0.693   0.000
+H   0.000   2.469   0.000
+H   2.138   1.235   0.000
+H   2.138  -1.235   0.000
+H   0.000  -2.469   0.000
+H  -2.138  -1.235   0.000
+H  -2.138   1.235   0.000
+""")
+```
+
+---
+
+## Periodic Systems (PBC)
+
+Pass a `lattice` (a 3×3 matrix, rows a, b, c, in Angstrom) to `Molecule` to run a
+Gamma-point periodic Hartree–Fock calculation. GANSU2 attaches the lattice to the
+geometry as an extended XYZ internally and dispatches the PBC-RHF path:
+
+```python
+import gansu2
+
+with gansu2.session():
+    mol = gansu2.Molecule("h2o.xyz", basis="sto-3g",
+                          lattice=[[12, 0, 0], [0, 12, 0], [0, 0, 12]])
+    r = mol.run()
+    print(f"PBC-RHF energy: {r.total_energy:.8f} Hartree")
+```
+
+`lattice` also accepts a flat length-9 sequence; omit it for a molecular
+calculation. (k-point KS-DFT is provided by the `gansu2_krks` CLI.)
+
+## API Reference
+
+### Module Functions
+
+```python
+gansu2.init(force_cpu=False)     # Initialize (call once)
+gansu2.finalize()                # Cleanup (call at end)
+gansu2.list_basis_sets()         # List available basis sets
+```
+
+### `gansu2.Molecule`
+
+```python
+mol = gansu2.Molecule(
+    xyz_path,                   # Path to XYZ file
+    basis="sto-3g",             # Basis set name or .gbs path
+    **kwargs                    # Additional parameters
+)
+```
+
+### `mol.run()`
+
+```python
+result = mol.run(
+    method="RHF",               # "RHF", "UHF", "ROHF", or "RKS" (DFT)
+    post_hf="none",             # Post-HF: "mp2", "ccsd", "fci", etc.
+    quiet=True,                 # Suppress GANSU2 output (default True)
+    **kwargs                    # Additional GANSU2 parameters
+)
+```
+
+DFT (restricted Kohn-Sham) is selected with `method="RKS"`; the functional and grid are passed as extra parameters:
+
+```python
+r = mol.run(method="RKS", functional="pbe", grid_level=3)   # functional: "svwn5" or "pbe"
+```
+
+### `gansu2.Result` Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `total_energy` | `float` | HF total energy (Hartree) |
+| `post_hf_energy` | `float` | Post-HF correlation energy |
+| `correlation_energy` | `float` | Alias for post_hf_energy |
+| `nuclear_repulsion_energy` | `float` | Nuclear repulsion energy |
+| `num_basis` | `int` | Number of basis functions |
+| `num_electrons` | `int` | Number of electrons |
+| `num_atoms` | `int` | Number of atoms |
+| `orbital_energies` | `np.ndarray` | Orbital energies (nao,) |
+| `mo_coefficients` | `np.ndarray` | MO coefficients (nao, nao) |
+| `ccsd_1rdm_mo` | `np.ndarray` | CCSD 1-RDM in MO basis (nao, nao) |
+| `excited_state_report` | `str` | Formatted excited state table |
+| `excited_states` | `dict` | `{'energies', 'oscillator_strengths'}` arrays (after an excited-state run) |
+| `dipole` | `np.ndarray` | Ground-state SCF dipole (3,), atomic units e·Bohr (RHF) |
+| `energy_gradient` | `np.ndarray` | Analytic gradient / forces (natoms, 3), Hartree/Bohr — computed on demand |
+| `hessian` | `np.ndarray` | Analytic Hessian (3N, 3N), Hartree/Bohr² — computed on demand |
+| `frequencies` | `np.ndarray` | Harmonic vibrational frequencies (cm⁻¹), imaginary modes negative — computed on demand |
+
+Note: `energy_gradient`, `hessian`, and `frequencies` are computed lazily when the property is accessed, so no special `run_type` is required — a plain `run()` is enough.
+
+---
+
+## Examples
+
+### 1. HF Energy with Different Basis Sets
+
+```python
+import gansu2
+
+gansu2.init()
+
+with open("h2o.xyz", "w") as f:
+    f.write("3\nWater\nO 0 0 0.127\nH 0 0.758 -0.509\nH 0 -0.758 -0.509\n")
+
+for basis in ["sto-3g", "cc-pvdz", "cc-pvtz"]:
+    r = gansu2.Molecule("h2o.xyz", basis=basis).run()
+    print(f"{basis:10s}  E = {r.total_energy:.8f}  nao = {r.num_basis}")
+
+gansu2.finalize()
+```
+
+### 2. Post-HF Method Comparison
+
+```python
+import gansu2
+
+gansu2.init()
+
+with open("h2o.xyz", "w") as f:
+    f.write("3\nWater\nO 0 0 0.127\nH 0 0.758 -0.509\nH 0 -0.758 -0.509\n")
+
+for method in ["none", "mp2", "mp3", "ccsd", "ccsd_t", "fci"]:
+    mol = gansu2.Molecule("h2o.xyz", basis="sto-3g")
+    r = mol.run(post_hf=method)
+    E = r.total_energy + r.post_hf_energy
+    label = method.upper() if method != "none" else "HF"
+    print(f"{label:10s}  E = {E:.8f}")
+
+gansu2.finalize()
+```
+
+### 3. H2 Dissociation Curve
+
+```python
+import gansu2
+import numpy as np
+
+gansu2.init()
+
+print(f"{'R (A)':>8s}  {'RHF':>14s}  {'CCSD':>14s}  {'FCI':>14s}")
+print("-" * 56)
+
+for R in np.linspace(0.4, 5.0, 24):
+    with open("h2.xyz", "w") as f:
+        f.write(f"2\nH2\nH 0 0 0\nH 0 0 {R}\n")
+
+    r_hf   = gansu2.Molecule("h2.xyz", basis="cc-pvdz").run()
+    r_ccsd = gansu2.Molecule("h2.xyz", basis="cc-pvdz").run(post_hf="ccsd")
+    r_fci  = gansu2.Molecule("h2.xyz", basis="cc-pvdz").run(post_hf="fci")
+
+    e_hf   = r_hf.total_energy
+    e_ccsd = r_ccsd.total_energy + r_ccsd.post_hf_energy
+    e_fci  = r_fci.total_energy + r_fci.post_hf_energy
+
+    print(f"{R:8.3f}  {e_hf:14.8f}  {e_ccsd:14.8f}  {e_fci:14.8f}")
+
+gansu2.finalize()
+```
+
+### 4. Excited States
+
+```python
+import gansu2
+
+gansu2.init()
+
+with open("h2o.xyz", "w") as f:
+    f.write("3\nWater\nO 0 0 0.127\nH 0 0.758 -0.509\nH 0 -0.758 -0.509\n")
+
+mol = gansu2.Molecule("h2o.xyz", basis="cc-pvdz")
+r = mol.run(post_hf="eom_ccsd", n_excited_states="5")
+print(r.excited_state_report)
+
+gansu2.finalize()
+```
+
+Available excited-state / spectroscopy `post_hf` methods (all accept `n_excited_states`):
+
+| `post_hf=` | Method |
+| --- | --- |
+| `"cis"` | Configuration Interaction Singles |
+| `"adc2"`, `"sos_adc2"`, `"lt_sos_adc2"`, `"adc2x"` | ADC(2) family |
+| `"thc_sos_adc2"` | Tensor Hypercontraction SOS-ADC(2) (`--eri_method ri` recommended) |
+| `"eom_mp2"`, `"eom_cc2"`, `"eom_ccsd"` | Equation-of-Motion methods |
+| `"ip_eom_ccsd"`, `"ea_eom_ccsd"` | IP / EA-EOM-CCSD — (N∓1)-electron states (RHF) |
+| `"steom_ccsd"` | Similarity-Transformed EOM-CCSD (auto-runs CIS-NTO + IP/EA-EOM; RHF) |
+| `"dlpno_steom_ccsd"` | Local STEOM-CCSD (RHF, requires RI) |
+
+```python
+# STEOM-CCSD (RI recommended); reads the auxiliary basis via the `ag` kwarg.
+r = gansu2.Molecule("h2o.xyz", basis="cc-pvdz").run(
+        post_hf="steom_ccsd",
+        eri_method="ri",
+        ag="cc-pvdz-rifit",       # auxiliary basis (name or path)
+        n_excited_states="5")
+print(r.excited_state_report)
+```
+
+### 5. Orbital Energies and MO Coefficients
+
+```python
+import gansu2
+import numpy as np
+
+gansu2.init()
+
+with open("h2o.xyz", "w") as f:
+    f.write("3\nWater\nO 0 0 0.127\nH 0 0.758 -0.509\nH 0 -0.758 -0.509\n")
+
+r = gansu2.Molecule("h2o.xyz", basis="cc-pvdz").run()
+
+print("Orbital energies (Hartree):")
+eps = r.orbital_energies
+nocc = r.num_electrons // 2
+for i, e in enumerate(eps):
+    label = "occ" if i < nocc else "vir"
+    print(f"  MO {i+1:3d} ({label})  {e:12.6f}")
+
+print(f"\nHOMO-LUMO gap: {(eps[nocc] - eps[nocc-1]) * 27.2114:.2f} eV")
+
+gansu2.finalize()
+```
+
+### 5b. Forces, Hessian, Frequencies, and Dipole
+
+```python
+import gansu2
+import numpy as np
+
+gansu2.init()
+
+with open("h2o.xyz", "w") as f:
+    f.write("3\nWater\nO 0 0 0.127\nH 0 0.758 -0.509\nH 0 -0.758 -0.509\n")
+
+r = gansu2.Molecule("h2o.xyz", basis="cc-pvdz").run()   # plain energy run is enough
+
+# Dipole moment (atomic units e·Bohr; ×2.5417464157 → Debye)
+mu = r.dipole
+print(f"Dipole |mu| = {np.linalg.norm(mu) * 2.5417464157:.4f} Debye")
+
+# Nuclear forces (analytic gradient), (natoms, 3) in Hartree/Bohr
+g = r.energy_gradient
+print("Max |grad| =", np.abs(g).max())
+
+# Harmonic vibrational frequencies (cm^-1); Hessian built on demand
+freqs = r.frequencies
+print("Frequencies (cm^-1):", np.round(freqs, 1))
+
+gansu2.finalize()
+```
+
+### 6. CCSD 1-RDM (Correlation Density)
+
+```python
+import gansu2
+import numpy as np
+
+gansu2.init()
+
+with open("h2o.xyz", "w") as f:
+    f.write("3\nWater\nO 0 0 0.127\nH 0 0.758 -0.509\nH 0 -0.758 -0.509\n")
+
+r = gansu2.Molecule("h2o.xyz", basis="sto-3g").run(post_hf="ccsd_density")
+
+D = r.ccsd_1rdm_mo
+print(f"1-RDM shape: {D.shape}")
+print(f"Trace(D) = {np.trace(D):.6f}  (should be {r.num_electrons})")
+print(f"Natural occupations: {np.sort(np.linalg.eigvalsh(D))[::-1]}")
+
+gansu2.finalize()
+```
+
+### 6b. DMET-CCSD (Fragment-Based Correlation)
+
+```python
+import gansu2
+
+gansu2.init()
+
+# Benzene with auto-detected fragments (each heavy atom + nearest H)
+# 6 CH fragments, 2 unique by para-symmetry
+r = gansu2.Molecule("../xyz/Benzene.xyz", basis="sto-3g").run(
+    post_hf="dmet",
+    eri_method="ri",
+    auxiliary_gbsfilename="../auxiliary_basis/cc-pvdz-rifit.gbs",
+    num_gpus=4,
+)
+print(f"HF:           {r.total_energy:.6f} Ha")
+print(f"DMET-CCSD:    {r.total_energy + r.post_hf_energy:.6f} Ha")
+print(f"E_corr:       {r.post_hf_energy:.6f} Ha")
+
+# Manual fragment specification
+r2 = gansu2.Molecule("../xyz/Benzene.xyz", basis="sto-3g").run(
+    post_hf="dmet",
+    dmet_fragments="{0,6} {1,7} {2,8} {3,9} {4,10} {5,11}",
+)
+
+# Vayesta-compatible loose tolerance
+r3 = gansu2.Molecule("../xyz/Benzene.xyz", basis="sto-3g").run(
+    post_hf="dmet",
+    dmet_n_tol=4.2e-3,
+)
+
+gansu2.finalize()
+```
+
+### 6c. DLPNO-CCSD / DLPNO-CCSD(T) (Local Correlation)
+
+DLPNO methods scale near-linearly with system size by combining occupied LMO localization,
+PAO + per-LMO atom domains, per-pair PNO truncation, and strong/weak-pair partitioning.
+Closed-shell RHF only; requires the RI back-end.
+
+```python
+import gansu2
+
+gansu2.init()
+
+# Water hexamer DLPNO-CCSD(T) with the default "normal" preset
+r = gansu2.Molecule(
+    "../xyz/large_molecular/water_hexamer.xyz",
+    basis="cc-pvdz",
+).run(
+    post_hf="dlpno_ccsd_t",
+    eri_method="ri",
+    auxiliary_gbsfilename="../auxiliary_basis/cc-pvdz-rifit.gbs",
+    dlpno_preset="normal",          # loose / normal / tight / very_tight
+    num_gpus=8,
+)
+print(f"HF:                 {r.total_energy:.6f} Ha")
+print(f"DLPNO-CCSD(T) corr: {r.post_hf_energy:.6f} Ha")
+print(f"Total:              {r.total_energy + r.post_hf_energy:.6f} Ha")
+
+# Tighter accuracy
+r2 = gansu2.Molecule("...").run(
+    post_hf="dlpno_ccsd_t",
+    eri_method="ri",
+    auxiliary_gbsfilename="...",
+    dlpno_preset="tight",
+)
+
+gansu2.finalize()
+```
+
+### 6d. Exporting Localized Orbitals
+
+```python
+import gansu2
+
+gansu2.init()
+
+# Write Pipek-Mezey occupied LMOs to output_lmo.molden (alongside the SCF).
+# Works for RHF / UHF / ROHF; the canonical virtual orbitals are retained.
+gansu2.Molecule("../xyz/Benzene.xyz", basis="cc-pvdz").run(
+    export_lmo_molden=True,
+)
+# Open output_lmo.molden in Avogadro / Jmol / VMD / MOrbVis to visualize
+# the bond-localized σ orbitals and lone pairs.
+
+gansu2.finalize()
+```
+
+### 7. Potential Energy Scan (Bond Stretching)
+
+```python
+import gansu2
+import numpy as np
+
+gansu2.init()
+
+# OH stretch in water: fix one H, move the other
+distances = np.linspace(0.8, 2.5, 20)
+energies = []
+
+for d in distances:
+    with open("h2o_scan.xyz", "w") as f:
+        f.write(f"3\nH2O OH scan\nO 0 0 0\nH 0 0.758 -0.509\nH 0 {-0.758*d/0.958:.6f} {-0.509*d/0.958:.6f}\n")
+    r = gansu2.Molecule("h2o_scan.xyz", basis="cc-pvdz").run(post_hf="mp2")
+    E = r.total_energy + r.post_hf_energy
+    energies.append(E)
+    print(f"d={d:.3f} A  E={E:.8f}")
+
+gansu2.finalize()
+```
+
+### 8. Basis Set Convergence Study
+
+```python
+import gansu2
+
+gansu2.init()
+
+with open("h2o.xyz", "w") as f:
+    f.write("3\nWater\nO 0 0 0.127\nH 0 0.758 -0.509\nH 0 -0.758 -0.509\n")
+
+print(f"{'Basis':>12s}  {'nao':>5s}  {'HF':>14s}  {'CCSD':>14s}  {'Corr':>12s}")
+print("-" * 65)
+
+for basis in ["sto-3g", "3-21g", "6-31g", "6-31g_st", "cc-pvdz", "cc-pvtz"]:
+    try:
+        r = gansu2.Molecule("h2o.xyz", basis=basis).run(post_hf="ccsd")
+        e_hf = r.total_energy
+        e_corr = r.post_hf_energy
+        print(f"{basis:>12s}  {r.num_basis:5d}  {e_hf:14.8f}  {e_hf+e_corr:14.8f}  {e_corr:12.8f}")
+    except Exception as e:
+        print(f"{basis:>12s}  FAILED: {e}")
+
+gansu2.finalize()
+```
+
+### 9. Context Manager
+
+```python
+import gansu2
+
+with gansu2.session():  # init + finalize automatically
+    r = gansu2.Molecule("h2o.xyz", basis="cc-pvdz").run(post_hf="mp2")
+    print(f"E = {r.total_energy + r.post_hf_energy:.8f}")
+```
+
+### 10. CPU-Only Mode
+
+```python
+import gansu2
+
+gansu2.init(force_cpu=True)  # No GPU used
+
+r = gansu2.Molecule("h2o.xyz", basis="sto-3g").run(post_hf="ccsd")
+print(f"E = {r.total_energy + r.post_hf_energy:.8f}")
+
+gansu2.finalize()
+```
+
+---
+
+## Full Parameter Reference
+
+All parameters accepted by `mol.run(**kwargs)` and `gansu2.Molecule(..., **kwargs)` are the same as the CLI parameters. See [parameters.md](parameters.md) for the complete list.
+
+```python
+# Example: passing arbitrary parameters
+r = mol.run(
+    method="RHF",
+    post_hf="adc2",
+    n_excited_states="10",
+    adc2_solver="schur_omega",
+    initial_guess="sad",
+)
+```
+
+---
+
+## Available Basis Sets
+
+No `gansu2.init()` required — works immediately:
+
+```python
+import gansu2
+print(gansu2.list_basis_sets())
+# ['3-21g', '4-31g', '6-311g_st_st', '6-31g', '6-31g_st',
+#  'ano-rcc-mb', 'cc-pvdz', 'cc-pvqz', 'cc-pvtz', 'sto-3g']
+```
+
+From CLI:
+```bash
+gansu2 --list-basis
+```
+
+---
+
+## Plotting Example (matplotlib)
+
+```python
+import gansu2
+import numpy as np
+import matplotlib.pyplot as plt
+
+gansu2.init()
+
+Rs = np.linspace(0.4, 5.0, 30)
+methods = {"RHF": "none", "MP2": "mp2", "CCSD": "ccsd", "FCI": "fci"}
+results = {m: [] for m in methods}
+
+for R in Rs:
+    with open("h2.xyz", "w") as f:
+        f.write(f"2\nH2\nH 0 0 0\nH 0 0 {R}\n")
+    for label, post_hf in methods.items():
+        r = gansu2.Molecule("h2.xyz", basis="cc-pvdz").run(post_hf=post_hf)
+        results[label].append(r.total_energy + r.post_hf_energy)
+
+gansu2.finalize()
+
+plt.figure(figsize=(8, 6))
+for label, Es in results.items():
+    plt.plot(Rs, Es, "o-", label=label)
+plt.xlabel("H-H distance (A)")
+plt.ylabel("Total energy (Hartree)")
+plt.title("H2 dissociation curve")
+plt.legend()
+plt.grid(alpha=0.3)
+plt.tight_layout()
+plt.savefig("h2_dissociation.png", dpi=150)
+plt.show()
+```
